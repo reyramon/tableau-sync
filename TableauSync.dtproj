@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns:xsi="http://www.w3.org/2000/10/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2000/10/XMLSchema">
+  <DeploymentModel>Project</DeploymentModel>
+  <DeploymentModelSpecificContent>
+    <Manifest />
+  </DeploymentModelSpecificContent>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{9E98F463-3487-4ED1-95A8-5263C3201E39}</ProjectGuid>
+  </PropertyGroup>
+</Project>
