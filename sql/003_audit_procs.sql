@@ -1,4 +1,5 @@
-SET NOCOUNT ON;
+SET NOCOUNT ON
+GO
 
 CREATE OR ALTER PROCEDURE dbo.tableau_audit_usp_TableauUserSyncInitializeRun
     @RunId BIGINT OUTPUT
