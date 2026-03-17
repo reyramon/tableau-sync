@@ -1,4 +1,5 @@
-SET NOCOUNT ON;
+SET NOCOUNT ON
+GO
 
 CREATE OR ALTER PROCEDURE dbo.tableau_wrk_usp_BuildTableauUserSyncDelta
     @RunId BIGINT
