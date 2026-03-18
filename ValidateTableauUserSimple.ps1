@@ -79,7 +79,7 @@ try {
             "X-Tableau-Auth" = $token
         }
 
-        Write-Host "Checking page $pageNumber : $usersUrl"
+        Write-Host "Checking page ${pageNumber}: $usersUrl"
 
         $usersResponseRaw = Invoke-RestMethod `
             -Method Get `
