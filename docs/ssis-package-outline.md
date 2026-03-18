@@ -10,6 +10,7 @@ Use these package-level variables to match the pipeline design:
 - `PatSecret` (`String`)
 - `SiteContentUrl` (`String`) empty string for the default site
 - `SqlConnectionString` (`String`) optional override SQL Server connection string used by the script task
+- `SqlConnectionManagerName` (`String`) optional package connection manager name, default `Proddb.med.ds.osd.mil.J8BI_Prd_apps`
 - `Token` (`String`)
 - `SiteId` (`String`)
 - `RunId` (`Int64`)
@@ -70,5 +71,5 @@ In Phase 1, keep `IsDryRun = 1` so the loop logs intended actions without callin
 - `SignOutScriptTask.cs`: revokes the Tableau session token
 
 The current package script can also orchestrate the end-to-end sync in one Script Task. If
-`SqlConnectionString` is blank, the script falls back to the first package connection manager's
-connection string.
+`SqlConnectionString` is blank, the script falls back to the package connection manager named in
+`SqlConnectionManagerName`, which currently defaults to `Proddb.med.ds.osd.mil.J8BI_Prd_apps`.

@@ -58,6 +58,9 @@
     <DTS:Variable DTS:CreationName="" DTS:DTSID="{3F4D72B1-16F8-4978-A8C3-6FE5CA3D6401}" DTS:IncludeInDebugDump="2345" DTS:Namespace="User" DTS:ObjectName="SqlConnectionString">
       <DTS:VariableValue DTS:DataType="8"></DTS:VariableValue>
     </DTS:Variable>
+    <DTS:Variable DTS:CreationName="" DTS:DTSID="{4E6033AB-D6C0-4DEF-B6A6-2D36A20DF201}" DTS:IncludeInDebugDump="2345" DTS:Namespace="User" DTS:ObjectName="SqlConnectionManagerName">
+      <DTS:VariableValue DTS:DataType="8">Proddb.med.ds.osd.mil.J8BI_Prd_apps</DTS:VariableValue>
+    </DTS:Variable>
     <DTS:Variable DTS:CreationName="" DTS:DTSID="{D4D3A086-DCF7-4E24-847B-A1E8B61C2D01}" DTS:IncludeInDebugDump="2345" DTS:Namespace="User" DTS:ObjectName="Token">
       <DTS:VariableValue DTS:DataType="8"></DTS:VariableValue>
     </DTS:Variable>
@@ -79,7 +82,7 @@
           VSTAMajorVersion="15"
           VSTAMinorVersion="0"
           Language="CSharp"
-          ReadOnlyVariables="User::ServerUrl,User::ApiVersion,User::PatName,User::PatSecret,User::SiteContentUrl,User::SqlConnectionString,User::PageSize,User::IsDryRun"
+          ReadOnlyVariables="User::ServerUrl,User::ApiVersion,User::PatName,User::PatSecret,User::SiteContentUrl,User::SqlConnectionString,User::SqlConnectionManagerName,User::PageSize,User::IsDryRun"
           ReadWriteVariables="User::Token,User::SiteId,User::RunId,User::CurrentUsername,User::CurrentEmail,User::CurrentSiteRole">
           <ProjectItem
             Name="Properties\Settings.settings"
@@ -352,7 +355,7 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
                 EnsureRequiredValue(apiVersion, "User::ApiVersion");
                 EnsureRequiredValue(patName, "User::PatName");
                 EnsureRequiredValue(patSecret, "User::PatSecret");
-                EnsureRequiredValue(sqlConnectionString, "User::SqlConnectionString or package connection manager");
+                EnsureRequiredValue(sqlConnectionString, "User::SqlConnectionString or named package connection manager");
 
                 using (SqlConnection connection = new SqlConnection(sqlConnectionString))
                 {
@@ -498,12 +501,22 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
                 return configuredConnectionString;
             }
 
-            if (Dts.Connections.Count == 0)
+            string connectionManagerName = GetStringVariable("User::SqlConnectionManagerName");
+            if (string.IsNullOrWhiteSpace(connectionManagerName))
             {
                 return string.Empty;
             }
 
-            ConnectionManager connectionManager = Dts.Connections[0];
+            ConnectionManager connectionManager = null;
+            try
+            {
+                connectionManager = Dts.Connections[connectionManagerName];
+            }
+            catch
+            {
+                return string.Empty;
+            }
+
             return connectionManager == null ? string.Empty : connectionManager.ConnectionString;
         }
 
