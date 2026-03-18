@@ -20,7 +20,7 @@ namespace TableauUserSync.ScriptTasks.Common
                 "</credentials>" +
                 "</tsRequest>";
 
-            string responseXml = SendRequest(url, "POST", null, payload, "text/xml");
+            string responseXml = SendRequest(url, "POST", null, payload, "application/xml");
             XmlDocument document = new XmlDocument();
             document.LoadXml(responseXml);
 
@@ -49,7 +49,7 @@ namespace TableauUserSync.ScriptTasks.Common
                 pageSize,
                 pageNumber);
 
-            string responseXml = SendRequest(url, "GET", token, null, "text/xml");
+            string responseXml = SendRequest(url, "GET", token, null, "application/xml");
             XmlDocument document = new XmlDocument();
             document.LoadXml(responseXml);
 
@@ -93,20 +93,20 @@ namespace TableauUserSync.ScriptTasks.Common
                 "<user name=\"" + EscapeXml(username) + "\" siteRole=\"" + EscapeXml(siteRole) + "\" />" +
                 "</tsRequest>";
 
-            return SendRequest(url, "POST", token, payload, "text/xml");
+            return SendRequest(url, "POST", token, payload, "application/xml");
         }
 
         public void SignOut(string serverUrl, string apiVersion, string token)
         {
             string url = serverUrl.TrimEnd('/') + "/api/" + apiVersion + "/auth/signout";
-            SendRequest(url, "POST", token, string.Empty, "text/xml");
+            SendRequest(url, "POST", token, string.Empty, "application/xml");
         }
 
         private static string SendRequest(string url, string method, string token, string body, string contentType)
         {
             HttpWebRequest request = (HttpWebRequest)WebRequest.Create(url);
             request.Method = method;
-            request.Accept = "text/xml";
+            request.Accept = "application/xml";
             request.ContentType = contentType;
 
             if (!string.IsNullOrWhiteSpace(token))
