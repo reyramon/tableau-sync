@@ -9,7 +9,7 @@ Use these package-level variables to match the pipeline design:
 - `PatName` (`String`)
 - `PatSecret` (`String`)
 - `SiteContentUrl` (`String`) empty string for the default site
-- `SqlConnectionString` (`String`) SQL Server connection string used by the script task
+- `SqlConnectionString` (`String`) optional override SQL Server connection string used by the script task
 - `Token` (`String`)
 - `SiteId` (`String`)
 - `RunId` (`Int64`)
@@ -69,5 +69,6 @@ In Phase 1, keep `IsDryRun = 1` so the loop logs intended actions without callin
 - `CreateUserScriptTask.cs`: creates a single Tableau user or logs a dry-run action
 - `SignOutScriptTask.cs`: revokes the Tableau session token
 
-The current package script can also orchestrate the end-to-end sync in one Script Task when
-`SqlConnectionString`, `RunId`, `PageSize`, and `IsDryRun` are populated.
+The current package script can also orchestrate the end-to-end sync in one Script Task. If
+`SqlConnectionString` is blank, the script falls back to the first package connection manager's
+connection string.

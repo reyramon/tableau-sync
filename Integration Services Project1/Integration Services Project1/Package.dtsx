@@ -343,7 +343,7 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
                 string patName = GetStringVariable("User::PatName");
                 string patSecret = GetStringVariable("User::PatSecret");
                 string siteContentUrl = GetStringVariable("User::SiteContentUrl");
-                sqlConnectionString = GetStringVariable("User::SqlConnectionString");
+                sqlConnectionString = ResolveSqlConnectionString();
                 int pageSize = Convert.ToInt32(Dts.Variables["User::PageSize"].Value);
                 bool isDryRun = Convert.ToBoolean(Dts.Variables["User::IsDryRun"].Value);
                 runId = Convert.ToInt64(Dts.Variables["User::RunId"].Value);
@@ -352,7 +352,7 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
                 EnsureRequiredValue(apiVersion, "User::ApiVersion");
                 EnsureRequiredValue(patName, "User::PatName");
                 EnsureRequiredValue(patSecret, "User::PatSecret");
-                EnsureRequiredValue(sqlConnectionString, "User::SqlConnectionString");
+                EnsureRequiredValue(sqlConnectionString, "User::SqlConnectionString or package connection manager");
 
                 using (SqlConnection connection = new SqlConnection(sqlConnectionString))
                 {
@@ -488,6 +488,23 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
         {
             object value = Dts.Variables[variableName].Value;
             return value == null ? string.Empty : value.ToString();
+        }
+
+        private string ResolveSqlConnectionString()
+        {
+            string configuredConnectionString = GetStringVariable("User::SqlConnectionString");
+            if (!string.IsNullOrWhiteSpace(configuredConnectionString))
+            {
+                return configuredConnectionString;
+            }
+
+            if (Dts.Connections.Count == 0)
+            {
+                return string.Empty;
+            }
+
+            ConnectionManager connectionManager = Dts.Connections[0];
+            return connectionManager == null ? string.Empty : connectionManager.ConnectionString;
         }
 
         private static void EnsureRequiredValue(string value, string variableName)
