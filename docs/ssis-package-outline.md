@@ -44,6 +44,14 @@ Use these package-level variables to match the pipeline design:
 
 - execute `dbo.tableau_wrk_usp_BuildTableauUserSyncDelta`
 
+### Load FMIS Users
+
+- execute `dbo.tableau_stg_usp_LoadFmisUsers`
+- pass the current `RunId`
+- current mapping from `dbo.fw_Users`:
+  `Edipi -> UserKey/Username`, `Email -> Email`, names -> `DisplayName`,
+  `DesiredSiteRole = 'Viewer'`, `IsActive = NOT IsDisabled`
+
 ### Final Audit Summary
 
 - execute `dbo.tableau_audit_usp_TableauUserSyncFinalizeRun`
