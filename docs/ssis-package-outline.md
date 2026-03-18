@@ -73,3 +73,5 @@ In Phase 1, keep `IsDryRun = 1` so the loop logs intended actions without callin
 The current package script can also orchestrate the end-to-end sync in one Script Task. If
 `SqlConnectionString` is blank, the script falls back to the package connection manager named in
 `SqlConnectionManagerName`, which currently defaults to `Proddb.med.ds.osd.mil.J8BI_Prd_apps`.
+When that connection manager is OLE DB-based, the script strips OLE DB-only keywords such as
+`Provider` before creating the SQL connection.

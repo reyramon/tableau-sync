@@ -317,6 +317,7 @@ namespace TableauUserSync.ScriptTasks
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Data.Common;
 using System.Data.SqlClient;
 using Microsoft.SqlServer.Dts.Runtime;
 using TableauUserSync.ScriptTasks;
@@ -517,7 +518,36 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
                 return string.Empty;
             }
 
-            return connectionManager == null ? string.Empty : connectionManager.ConnectionString;
+            return connectionManager == null ? string.Empty : NormalizeSqlConnectionString(connectionManager.ConnectionString);
+        }
+
+        private static string NormalizeSqlConnectionString(string connectionString)
+        {
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                return string.Empty;
+            }
+
+            DbConnectionStringBuilder builder = new DbConnectionStringBuilder();
+            builder.ConnectionString = connectionString;
+
+            // OLE DB connection managers often add Provider, which SqlConnection does not support.
+            if (builder.ContainsKey("Provider"))
+            {
+                builder.Remove("Provider");
+            }
+
+            if (builder.ContainsKey("OLE DB Services"))
+            {
+                builder.Remove("OLE DB Services");
+            }
+
+            if (builder.ContainsKey("Auto Translate"))
+            {
+                builder.Remove("Auto Translate");
+            }
+
+            return builder.ConnectionString;
         }
 
         private static void EnsureRequiredValue(string value, string variableName)
