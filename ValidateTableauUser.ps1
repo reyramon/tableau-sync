@@ -22,32 +22,6 @@ $ErrorActionPreference = "Stop"
 $ServerUrl = $ServerUrl.Trim().TrimEnd('/')
 $Username = $Username.Trim()
 
-function Get-TableauUsersPage {
-    param(
-        [string]$BaseUrl,
-        [string]$Version,
-        [string]$SiteId,
-        [string]$Token,
-        [int]$PageNumber,
-        [int]$Size
-    )
-
-    $usersUrl = "$BaseUrl/api/$Version/sites/$SiteId/users?pageSize=$Size&pageNumber=$PageNumber"
-    $headers = @{
-        "Accept"         = "application/xml"
-        "X-Tableau-Auth" = $Token
-    }
-
-    $response = Invoke-RestMethod -Method Get -Uri $usersUrl -Headers $headers
-    [xml]$xml = $response.OuterXml
-
-    return @{
-        Users = @($xml.tsResponse.users.user)
-        Pagination = $xml.tsResponse.pagination
-        RequestUrl = $usersUrl
-    }
-}
-
 $token = $null
 
 try {
@@ -75,14 +49,30 @@ try {
         throw "Sign-in succeeded but token or site ID was not returned."
     }
 
+    Write-Host "Signed in successfully."
+    Write-Host "Site ID: $siteId"
+
     $pageNumber = 1
     $foundUser = $null
     $totalAvailable = 0
 
     do {
-        $page = Get-TableauUsersPage -BaseUrl $ServerUrl -Version $ApiVersion -SiteId $siteId -Token $token -PageNumber $pageNumber -Size $PageSize
-        $users = $page.Users
-        $pagination = $page.Pagination
+        $usersUrl = "$ServerUrl/api/$ApiVersion/sites/$siteId/users?pageSize=$PageSize&pageNumber=$pageNumber"
+        $authHeaders = @{
+            "Accept"         = "application/xml"
+            "X-Tableau-Auth" = $token
+        }
+
+        Write-Host "Checking page $pageNumber: $usersUrl"
+
+        $usersResponseRaw = Invoke-RestMethod `
+            -Method Get `
+            -Uri $usersUrl `
+            -Headers $authHeaders
+
+        [xml]$usersXml = $usersResponseRaw.OuterXml
+        $users = @($usersXml.tsResponse.users.user)
+        $pagination = $usersXml.tsResponse.pagination
 
         if ($pagination) {
             $totalAvailable = [int]$pagination.totalAvailable
@@ -119,6 +109,17 @@ try {
 }
 catch {
     Write-Error "Validation failed for server [$ServerUrl] and username [$Username]: $($_.Exception.Message)"
+    if ($_.Exception.Response) {
+        try {
+            $reader = New-Object System.IO.StreamReader($_.Exception.Response.GetResponseStream())
+            $errorBody = $reader.ReadToEnd()
+            if ($errorBody) {
+                Write-Error "Response body: $errorBody"
+            }
+        }
+        catch {
+        }
+    }
     throw
 }
 finally {
