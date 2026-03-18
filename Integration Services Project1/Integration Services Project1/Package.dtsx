@@ -55,6 +55,9 @@
     <DTS:Variable DTS:CreationName="" DTS:DTSID="{797A77E4-70C2-4B61-8B6E-BB8D7A5E5901}" DTS:IncludeInDebugDump="2345" DTS:Namespace="User" DTS:ObjectName="SiteId">
       <DTS:VariableValue DTS:DataType="8"></DTS:VariableValue>
     </DTS:Variable>
+    <DTS:Variable DTS:CreationName="" DTS:DTSID="{3F4D72B1-16F8-4978-A8C3-6FE5CA3D6401}" DTS:IncludeInDebugDump="2345" DTS:Namespace="User" DTS:ObjectName="SqlConnectionString">
+      <DTS:VariableValue DTS:DataType="8"></DTS:VariableValue>
+    </DTS:Variable>
     <DTS:Variable DTS:CreationName="" DTS:DTSID="{D4D3A086-DCF7-4E24-847B-A1E8B61C2D01}" DTS:IncludeInDebugDump="2345" DTS:Namespace="User" DTS:ObjectName="Token">
       <DTS:VariableValue DTS:DataType="8"></DTS:VariableValue>
     </DTS:Variable>
@@ -76,8 +79,8 @@
           VSTAMajorVersion="15"
           VSTAMinorVersion="0"
           Language="CSharp"
-          ReadOnlyVariables="User::ServerUrl,User::ApiVersion,User::PatName,User::PatSecret,User::SiteContentUrl"
-          ReadWriteVariables="User::Token,User::SiteId">
+          ReadOnlyVariables="User::ServerUrl,User::ApiVersion,User::PatName,User::PatSecret,User::SiteContentUrl,User::SqlConnectionString,User::PageSize,User::IsDryRun"
+          ReadWriteVariables="User::Token,User::SiteId,User::RunId,User::CurrentUsername,User::CurrentEmail,User::CurrentSiteRole">
           <ProjectItem
             Name="Properties\Settings.settings"
             Encoding="UTF8"><![CDATA[<?xml version='1.0' encoding='iso-8859-1'?>
@@ -309,8 +312,12 @@ namespace TableauUserSync.ScriptTasks
             Name="ScriptMain.cs"
             Encoding="UTF8"><![CDATA[#region Namespaces
 using System;
+using System.Collections.Generic;
+using System.Data;
+using System.Data.SqlClient;
 using Microsoft.SqlServer.Dts.Runtime;
 using TableauUserSync.ScriptTasks;
+using TableauUserSync.ScriptTasks.Common;
 #endregion
 
 namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
@@ -321,34 +328,358 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
         public void Main()
         {
             bool fireAgain = false;
+            long runId = 0;
+            string serverUrl = string.Empty;
+            string apiVersion = string.Empty;
+            string sqlConnectionString = string.Empty;
+            string token = string.Empty;
+            string siteId = string.Empty;
+            string finalStatus = "FAILED";
 
             try
             {
-                SignInScriptTask signInTask = new SignInScriptTask();
-                string serverUrl = (string)Dts.Variables["User::ServerUrl"].Value;
-                string apiVersion = (string)Dts.Variables["User::ApiVersion"].Value;
-                string patName = (string)Dts.Variables["User::PatName"].Value;
-                string patSecret = (string)Dts.Variables["User::PatSecret"].Value;
-                string siteContentUrl = (string)Dts.Variables["User::SiteContentUrl"].Value;
+                serverUrl = GetStringVariable("User::ServerUrl");
+                apiVersion = GetStringVariable("User::ApiVersion");
+                string patName = GetStringVariable("User::PatName");
+                string patSecret = GetStringVariable("User::PatSecret");
+                string siteContentUrl = GetStringVariable("User::SiteContentUrl");
+                sqlConnectionString = GetStringVariable("User::SqlConnectionString");
+                int pageSize = Convert.ToInt32(Dts.Variables["User::PageSize"].Value);
+                bool isDryRun = Convert.ToBoolean(Dts.Variables["User::IsDryRun"].Value);
+                runId = Convert.ToInt64(Dts.Variables["User::RunId"].Value);
 
-                TableauUserSync.ScriptTasks.Common.TableauSignInResult result = signInTask.Execute(
-                    serverUrl,
-                    apiVersion,
-                    patName,
-                    patSecret,
-                    siteContentUrl);
+                EnsureRequiredValue(serverUrl, "User::ServerUrl");
+                EnsureRequiredValue(apiVersion, "User::ApiVersion");
+                EnsureRequiredValue(patName, "User::PatName");
+                EnsureRequiredValue(patSecret, "User::PatSecret");
+                EnsureRequiredValue(sqlConnectionString, "User::SqlConnectionString");
 
-                Dts.Variables["User::Token"].Value = result.Token;
-                Dts.Variables["User::SiteId"].Value = result.SiteId;
+                using (SqlConnection connection = new SqlConnection(sqlConnectionString))
+                {
+                    connection.Open();
 
-                Dts.Events.FireInformation(0, "Tableau Sign In", "Authenticated to Tableau and stored Token/SiteId.", string.Empty, 0, ref fireAgain);
-                Dts.TaskResult = (int)ScriptResults.Success;
+                    if (runId <= 0)
+                    {
+                        runId = InitializeRun(connection);
+                        Dts.Variables["User::RunId"].Value = runId;
+                    }
+
+                    SignInScriptTask signInTask = new SignInScriptTask();
+                    TableauSignInResult signInResult = signInTask.Execute(
+                        serverUrl,
+                        apiVersion,
+                        patName,
+                        patSecret,
+                        siteContentUrl);
+
+                    token = signInResult.Token;
+                    siteId = signInResult.SiteId;
+                    Dts.Variables["User::Token"].Value = token;
+                    Dts.Variables["User::SiteId"].Value = siteId;
+
+                    LogApiCall(connection, runId, null, "SIGNIN", BuildAuthUrl(serverUrl, apiVersion, "signin"), 200, "Signed in to Tableau.");
+                    Dts.Events.FireInformation(0, "Tableau Sync", "Authenticated to Tableau.", string.Empty, 0, ref fireAgain);
+
+                    GetUsersScriptTask getUsersTask = new GetUsersScriptTask();
+                    IList<TableauUserRecord> tableauUsers = getUsersTask.ExecuteAllPages(
+                        serverUrl,
+                        apiVersion,
+                        siteId,
+                        token,
+                        pageSize);
+
+                    InsertTableauUsers(connection, runId, tableauUsers);
+                    LogApiCall(connection, runId, null, "GET_USERS", BuildUsersUrl(serverUrl, apiVersion, siteId, pageSize), 200, "Retrieved " + tableauUsers.Count + " Tableau users.");
+                    Dts.Events.FireInformation(0, "Tableau Sync", "Inserted " + tableauUsers.Count + " Tableau users into staging.", string.Empty, 0, ref fireAgain);
+
+                    BuildDelta(connection, runId);
+
+                    IList<SyncCandidate> createCandidates = GetCreateCandidates(connection, runId);
+                    bool hasErrors = false;
+
+                    foreach (SyncCandidate candidate in createCandidates)
+                    {
+                        Dts.Variables["User::CurrentUsername"].Value = candidate.Username;
+                        Dts.Variables["User::CurrentEmail"].Value = candidate.Email ?? string.Empty;
+                        Dts.Variables["User::CurrentSiteRole"].Value = candidate.SiteRole ?? string.Empty;
+
+                        try
+                        {
+                            CreateUserScriptTask createUserTask = new CreateUserScriptTask();
+                            string response = createUserTask.Execute(
+                                serverUrl,
+                                apiVersion,
+                                siteId,
+                                token,
+                                candidate.Username,
+                                candidate.SiteRole,
+                                isDryRun);
+
+                            string syncStatus = isDryRun ? "DRY_RUN" : "CREATED";
+                            string message = isDryRun
+                                ? "Dry run only. Tableau user was not created."
+                                : "Created Tableau user successfully.";
+
+                            UpdateDeltaStatus(connection, runId, candidate.Username, syncStatus, message);
+                            LogApiCall(connection, runId, candidate.Username, "CREATE_USER", BuildCreateUserUrl(serverUrl, apiVersion, siteId), 200, Truncate(response, 4000));
+                        }
+                        catch (Exception candidateEx)
+                        {
+                            hasErrors = true;
+                            UpdateDeltaStatus(connection, runId, candidate.Username, "ERROR", Truncate(candidateEx.Message, 4000));
+                            LogApiCall(connection, runId, candidate.Username, "CREATE_USER", BuildCreateUserUrl(serverUrl, apiVersion, siteId), null, Truncate(candidateEx.ToString(), 4000));
+                            Dts.Events.FireError(0, "Tableau Sync", "Create user failed for " + candidate.Username + ": " + candidateEx.Message, string.Empty, 0);
+                        }
+                    }
+
+                    if (createCandidates.Count == 0)
+                    {
+                        Dts.Events.FireInformation(0, "Tableau Sync", "No CREATE candidates were found in the delta table.", string.Empty, 0, ref fireAgain);
+                    }
+
+                    finalStatus = hasErrors ? "FAILED" : "SUCCESS";
+                }
+
+                Dts.TaskResult = finalStatus == "SUCCESS"
+                    ? (int)ScriptResults.Success
+                    : (int)ScriptResults.Failure;
             }
             catch (Exception ex)
             {
-                Dts.Events.FireError(0, "Tableau Sign In", ex.ToString(), string.Empty, 0);
+                finalStatus = "FAILED";
+                Dts.Events.FireError(0, "Tableau Sync", ex.ToString(), string.Empty, 0);
                 Dts.TaskResult = (int)ScriptResults.Failure;
             }
+            finally
+            {
+                try
+                {
+                    if (!string.IsNullOrWhiteSpace(token))
+                    {
+                        SignOutScriptTask signOutTask = new SignOutScriptTask();
+                        signOutTask.Execute(serverUrl, apiVersion, token);
+                    }
+                }
+                catch (Exception signOutEx)
+                {
+                    Dts.Events.FireWarning(0, "Tableau Sync", "Sign out failed: " + signOutEx.Message, string.Empty, 0);
+                }
+
+                try
+                {
+                    if (runId > 0 && !string.IsNullOrWhiteSpace(sqlConnectionString))
+                    {
+                        using (SqlConnection finalizeConnection = new SqlConnection(sqlConnectionString))
+                        {
+                            finalizeConnection.Open();
+                            LogApiCall(finalizeConnection, runId, null, "SIGNOUT", BuildAuthUrl(serverUrl, apiVersion, "signout"), 200, "Sign out attempted.");
+                            FinalizeRun(finalizeConnection, runId, finalStatus);
+                        }
+                    }
+                }
+                catch (Exception finalizeEx)
+                {
+                    Dts.Events.FireWarning(0, "Tableau Sync", "Finalize run failed: " + finalizeEx.Message, string.Empty, 0);
+                }
+            }
+        }
+
+        private string GetStringVariable(string variableName)
+        {
+            object value = Dts.Variables[variableName].Value;
+            return value == null ? string.Empty : value.ToString();
+        }
+
+        private static void EnsureRequiredValue(string value, string variableName)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                throw new ApplicationException("Required SSIS variable is empty: " + variableName);
+            }
+        }
+
+        private static long InitializeRun(SqlConnection connection)
+        {
+            using (SqlCommand command = new SqlCommand("dbo.tableau_audit_usp_TableauUserSyncInitializeRun", connection))
+            {
+                command.CommandType = CommandType.StoredProcedure;
+
+                SqlParameter runIdParameter = command.Parameters.Add("@RunId", SqlDbType.BigInt);
+                runIdParameter.Direction = ParameterDirection.Output;
+
+                command.ExecuteNonQuery();
+                return Convert.ToInt64(runIdParameter.Value);
+            }
+        }
+
+        private static void InsertTableauUsers(SqlConnection connection, long runId, IList<TableauUserRecord> users)
+        {
+            using (SqlTransaction transaction = connection.BeginTransaction())
+            {
+                using (SqlCommand deleteCommand = new SqlCommand("DELETE FROM dbo.tableau_stg_TableauUsers WHERE RunId = @RunId", connection, transaction))
+                {
+                    deleteCommand.Parameters.Add("@RunId", SqlDbType.BigInt).Value = runId;
+                    deleteCommand.ExecuteNonQuery();
+                }
+
+                using (SqlCommand insertCommand = new SqlCommand(
+                    @"INSERT INTO dbo.tableau_stg_TableauUsers
+                      (
+                          RunId,
+                          TableauUserId,
+                          Username,
+                          Email,
+                          SiteRole,
+                          LastLogin
+                      )
+                      VALUES
+                      (
+                          @RunId,
+                          @TableauUserId,
+                          @Username,
+                          @Email,
+                          @SiteRole,
+                          @LastLogin
+                      )", connection, transaction))
+                {
+                    insertCommand.Parameters.Add("@RunId", SqlDbType.BigInt);
+                    insertCommand.Parameters.Add("@TableauUserId", SqlDbType.NVarChar, 100);
+                    insertCommand.Parameters.Add("@Username", SqlDbType.NVarChar, 255);
+                    insertCommand.Parameters.Add("@Email", SqlDbType.NVarChar, 255);
+                    insertCommand.Parameters.Add("@SiteRole", SqlDbType.NVarChar, 100);
+                    insertCommand.Parameters.Add("@LastLogin", SqlDbType.DateTime2);
+
+                    foreach (TableauUserRecord user in users)
+                    {
+                        insertCommand.Parameters["@RunId"].Value = runId;
+                        insertCommand.Parameters["@TableauUserId"].Value = (object)(user.TableauUserId ?? string.Empty);
+                        insertCommand.Parameters["@Username"].Value = (object)(user.Username ?? string.Empty);
+                        insertCommand.Parameters["@Email"].Value = (object)user.Email ?? DBNull.Value;
+                        insertCommand.Parameters["@SiteRole"].Value = (object)user.SiteRole ?? DBNull.Value;
+                        insertCommand.Parameters["@LastLogin"].Value = (object)user.LastLogin ?? DBNull.Value;
+                        insertCommand.ExecuteNonQuery();
+                    }
+                }
+
+                transaction.Commit();
+            }
+        }
+
+        private static void BuildDelta(SqlConnection connection, long runId)
+        {
+            using (SqlCommand command = new SqlCommand("dbo.tableau_wrk_usp_BuildTableauUserSyncDelta", connection))
+            {
+                command.CommandType = CommandType.StoredProcedure;
+                command.Parameters.Add("@RunId", SqlDbType.BigInt).Value = runId;
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private static IList<SyncCandidate> GetCreateCandidates(SqlConnection connection, long runId)
+        {
+            List<SyncCandidate> candidates = new List<SyncCandidate>();
+
+            using (SqlCommand command = new SqlCommand(
+                @"SELECT Username, Email, DesiredSiteRole
+                  FROM dbo.tableau_wrk_TableauUserSyncDelta
+                  WHERE RunId = @RunId
+                    AND SyncAction = 'CREATE'
+                  ORDER BY Username", connection))
+            {
+                command.Parameters.Add("@RunId", SqlDbType.BigInt).Value = runId;
+
+                using (SqlDataReader reader = command.ExecuteReader())
+                {
+                    while (reader.Read())
+                    {
+                        candidates.Add(new SyncCandidate
+                        {
+                            Username = reader["Username"] == DBNull.Value ? string.Empty : reader["Username"].ToString(),
+                            Email = reader["Email"] == DBNull.Value ? null : reader["Email"].ToString(),
+                            SiteRole = reader["DesiredSiteRole"] == DBNull.Value ? "Viewer" : reader["DesiredSiteRole"].ToString()
+                        });
+                    }
+                }
+            }
+
+            return candidates;
+        }
+
+        private static void UpdateDeltaStatus(SqlConnection connection, long runId, string username, string syncStatus, string syncMessage)
+        {
+            using (SqlCommand command = new SqlCommand(
+                @"UPDATE dbo.tableau_wrk_TableauUserSyncDelta
+                  SET SyncStatus = @SyncStatus,
+                      SyncMessage = @SyncMessage
+                  WHERE RunId = @RunId
+                    AND Username = @Username", connection))
+            {
+                command.Parameters.Add("@RunId", SqlDbType.BigInt).Value = runId;
+                command.Parameters.Add("@Username", SqlDbType.NVarChar, 255).Value = username;
+                command.Parameters.Add("@SyncStatus", SqlDbType.NVarChar, 30).Value = syncStatus;
+                command.Parameters.Add("@SyncMessage", SqlDbType.NVarChar, 4000).Value = (object)(syncMessage ?? string.Empty);
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private static void LogApiCall(SqlConnection connection, long runId, string username, string action, string requestUrl, int? httpStatusCode, string responseBody)
+        {
+            using (SqlCommand command = new SqlCommand("dbo.tableau_audit_usp_TableauUserSyncLogApiCall", connection))
+            {
+                command.CommandType = CommandType.StoredProcedure;
+                command.Parameters.Add("@RunId", SqlDbType.BigInt).Value = runId;
+                command.Parameters.Add("@Username", SqlDbType.NVarChar, 255).Value = (object)username ?? DBNull.Value;
+                command.Parameters.Add("@Action", SqlDbType.NVarChar, 50).Value = action;
+                command.Parameters.Add("@RequestUrl", SqlDbType.NVarChar, 2048).Value = requestUrl;
+                command.Parameters.Add("@HttpStatusCode", SqlDbType.Int).Value = (object)httpStatusCode ?? DBNull.Value;
+                command.Parameters.Add("@ResponseBody", SqlDbType.NVarChar, -1).Value = (object)responseBody ?? DBNull.Value;
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private static void FinalizeRun(SqlConnection connection, long runId, string finalStatus)
+        {
+            using (SqlCommand command = new SqlCommand("dbo.tableau_audit_usp_TableauUserSyncFinalizeRun", connection))
+            {
+                command.CommandType = CommandType.StoredProcedure;
+                command.Parameters.Add("@RunId", SqlDbType.BigInt).Value = runId;
+                command.Parameters.Add("@Status", SqlDbType.NVarChar, 30).Value = finalStatus;
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private static string BuildAuthUrl(string serverUrl, string apiVersion, string action)
+        {
+            return serverUrl.TrimEnd('/') + "/api/" + apiVersion + "/auth/" + action;
+        }
+
+        private static string BuildUsersUrl(string serverUrl, string apiVersion, string siteId, int pageSize)
+        {
+            return serverUrl.TrimEnd('/') + "/api/" + apiVersion + "/sites/" + siteId + "/users?pageSize=" + pageSize + "&pageNumber=1";
+        }
+
+        private static string BuildCreateUserUrl(string serverUrl, string apiVersion, string siteId)
+        {
+            return serverUrl.TrimEnd('/') + "/api/" + apiVersion + "/sites/" + siteId + "/users";
+        }
+
+        private static string Truncate(string value, int maxLength)
+        {
+            if (string.IsNullOrEmpty(value) || value.Length <= maxLength)
+            {
+                return value;
+            }
+
+            return value.Substring(0, maxLength);
+        }
+
+        private sealed class SyncCandidate
+        {
+            public string Username { get; set; }
+
+            public string Email { get; set; }
+
+            public string SiteRole { get; set; }
         }
 
         enum ScriptResults

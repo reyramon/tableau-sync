@@ -12,7 +12,8 @@ Phase 1 is focused on:
 - computing the user delta in SQL
 - writing auditable run and API-call logs
 
-The initial implementation is intentionally limited to analysis and reporting. It prepares the workspace for a later Phase 2 enablement of `CREATE` actions.
+The current SSIS package can stage Tableau users, build the SQL delta, and perform `CREATE`
+actions when `IsDryRun` is set to `False` and the SQL staging data is available for the run.
 
 ## Structure
 
