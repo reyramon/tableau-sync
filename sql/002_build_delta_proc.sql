@@ -91,11 +91,13 @@ BEGIN
         'REVIEW',
         'PENDING',
         'User exists in Tableau but was not returned by FMIS.'
-    FROM Tableau t
-    WHERE NOT EXISTS
+    FROM dbo.tableau_stg_TableauUsers t
+    WHERE t.RunId = @RunId
+      AND NOT EXISTS
     (
         SELECT 1
-        FROM Fmis f
-        WHERE UPPER(LTRIM(RTRIM(f.Username))) = UPPER(LTRIM(RTRIM(t.Username)))
+        FROM dbo.tableau_stg_FMISUsers f
+        WHERE f.RunId = @RunId
+          AND UPPER(LTRIM(RTRIM(f.Username))) = UPPER(LTRIM(RTRIM(t.Username)))
     );
 END;
