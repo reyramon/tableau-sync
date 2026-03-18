@@ -80,7 +80,7 @@ namespace TableauUserSync.ScriptTasks.Common
             return users;
         }
 
-        public string CreateUser(string serverUrl, string apiVersion, string siteId, string token, string username, string siteRole)
+        public TableauCreateUserResult CreateUser(string serverUrl, string apiVersion, string siteId, string token, string username, string siteRole)
         {
             string url = string.Format(
                 "{0}/api/{1}/sites/{2}/users",
@@ -93,7 +93,45 @@ namespace TableauUserSync.ScriptTasks.Common
                 "<user name=\"" + EscapeXml(username) + "\" siteRole=\"" + EscapeXml(siteRole) + "\" />" +
                 "</tsRequest>";
 
-            return SendRequest(url, "POST", token, payload, "application/xml");
+            string responseXml = SendRequest(url, "POST", token, payload, "application/xml");
+            XmlDocument document = new XmlDocument();
+            document.LoadXml(responseXml);
+
+            XmlNamespaceManager ns = new XmlNamespaceManager(document.NameTable);
+            ns.AddNamespace("t", document.DocumentElement.NamespaceURI);
+
+            XmlNode userNode = document.SelectSingleNode("//t:user", ns);
+
+            return new TableauCreateUserResult
+            {
+                UserId = GetRequiredAttribute(userNode, "id"),
+                ResponseXml = responseXml
+            };
+        }
+
+        public string UpdateUserProfile(string serverUrl, string apiVersion, string siteId, string token, string userId, string fullName, string email)
+        {
+            if (string.IsNullOrWhiteSpace(fullName) && string.IsNullOrWhiteSpace(email))
+            {
+                return "Profile update skipped because full name and email were empty.";
+            }
+
+            string url = string.Format(
+                "{0}/api/{1}/sites/{2}/users/{3}",
+                serverUrl.TrimEnd('/'),
+                apiVersion,
+                siteId,
+                userId);
+
+            string payload =
+                "<tsRequest>" +
+                "<user" +
+                (string.IsNullOrWhiteSpace(fullName) ? string.Empty : " fullName=\"" + EscapeXml(fullName) + "\"") +
+                (string.IsNullOrWhiteSpace(email) ? string.Empty : " email=\"" + EscapeXml(email) + "\"") +
+                " />" +
+                "</tsRequest>";
+
+            return SendRequest(url, "PUT", token, payload, "application/xml");
         }
 
         public void SignOut(string serverUrl, string apiVersion, string token)

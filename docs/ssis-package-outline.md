@@ -75,7 +75,7 @@ In Phase 1, keep `IsDryRun = 1` so the loop logs intended actions without callin
 
 - `SignInScriptTask.cs`: reads PAT variables, stores `Token` and `SiteId`
 - `GetUsersScriptTask.cs`: pages Tableau users into `dbo.tableau_stg_TableauUsers`
-- `CreateUserScriptTask.cs`: creates a single Tableau user or logs a dry-run action
+- `CreateUserScriptTask.cs`: creates a single Tableau user, then updates `fullName` and email from FMIS `DisplayName`/`Email`, or logs a dry-run action
 - `SignOutScriptTask.cs`: revokes the Tableau session token
 
 The current package script can also orchestrate the end-to-end sync in one Script Task. If

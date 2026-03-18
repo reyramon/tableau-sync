@@ -120,6 +120,13 @@ namespace TableauUserSync.ScriptTasks.Common
 
         public DateTime? LastLogin { get; set; }
     }
+
+    internal sealed class TableauCreateUserResult
+    {
+        public string UserId { get; set; }
+
+        public string ResponseXml { get; set; }
+    }
 }]]></ProjectItem>
           <ProjectItem
             Name="Properties\Settings.Designer.cs"
@@ -216,15 +223,18 @@ namespace TableauUserSync.ScriptTasks
 {
     internal sealed class CreateUserScriptTask
     {
-        public string Execute(string serverUrl, string apiVersion, string siteId, string token, string username, string siteRole, bool isDryRun)
+        public string Execute(string serverUrl, string apiVersion, string siteId, string token, string username, string siteRole, string fullName, string email, bool isDryRun)
         {
             if (isDryRun)
             {
-                return "DRY_RUN: create user skipped for " + username + " with role " + siteRole + ".";
+                return "DRY_RUN: create user skipped for " + username + " with role " + siteRole + " and full name " + (string.IsNullOrWhiteSpace(fullName) ? "<blank>" : fullName) + ".";
             }
 
             TableauRestClient client = new TableauRestClient();
-            return client.CreateUser(serverUrl, apiVersion, siteId, token, username, siteRole);
+            TableauCreateUserResult createResult = client.CreateUser(serverUrl, apiVersion, siteId, token, username, siteRole);
+            string updateResult = client.UpdateUserProfile(serverUrl, apiVersion, siteId, token, createResult.UserId, fullName, email);
+
+            return createResult.ResponseXml + Environment.NewLine + updateResult;
         }
     }
 }]]></ProjectItem>
@@ -417,6 +427,8 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
                                 token,
                                 candidate.Username,
                                 candidate.SiteRole,
+                                candidate.DisplayName,
+                                candidate.Email,
                                 isDryRun);
 
                             string syncStatus = isDryRun ? "DRY_RUN" : "CREATED";
@@ -640,10 +652,16 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
             List<SyncCandidate> candidates = new List<SyncCandidate>();
 
             using (SqlCommand command = new SqlCommand(
-                @"SELECT Username, Email, DesiredSiteRole
-                  FROM dbo.tableau_wrk_TableauUserSyncDelta
-                  WHERE RunId = @RunId
-                    AND SyncAction = 'CREATE'
+                @"SELECT d.Username,
+                         d.Email,
+                         d.DesiredSiteRole,
+                         f.DisplayName
+                  FROM dbo.tableau_wrk_TableauUserSyncDelta d
+                  LEFT JOIN dbo.tableau_stg_FMISUsers f
+                    ON f.RunId = d.RunId
+                   AND UPPER(LTRIM(RTRIM(f.Username))) = UPPER(LTRIM(RTRIM(d.Username)))
+                  WHERE d.RunId = @RunId
+                    AND d.SyncAction = 'CREATE'
                   ORDER BY Username", connection))
             {
                 command.Parameters.Add("@RunId", SqlDbType.BigInt).Value = runId;
@@ -656,7 +674,8 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
                         {
                             Username = reader["Username"] == DBNull.Value ? string.Empty : reader["Username"].ToString(),
                             Email = reader["Email"] == DBNull.Value ? null : reader["Email"].ToString(),
-                            SiteRole = reader["DesiredSiteRole"] == DBNull.Value ? "Viewer" : reader["DesiredSiteRole"].ToString()
+                            SiteRole = reader["DesiredSiteRole"] == DBNull.Value ? "Viewer" : reader["DesiredSiteRole"].ToString(),
+                            DisplayName = reader["DisplayName"] == DBNull.Value ? null : reader["DisplayName"].ToString()
                         });
                     }
                 }
@@ -740,6 +759,8 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
             public string Email { get; set; }
 
             public string SiteRole { get; set; }
+
+            public string DisplayName { get; set; }
         }
 
         enum ScriptResults
@@ -1097,7 +1118,7 @@ namespace TableauUserSync.ScriptTasks.Common
             return users;
         }
 
-        public string CreateUser(string serverUrl, string apiVersion, string siteId, string token, string username, string siteRole)
+        public TableauCreateUserResult CreateUser(string serverUrl, string apiVersion, string siteId, string token, string username, string siteRole)
         {
             string url = string.Format(
                 "{0}/api/{1}/sites/{2}/users",
@@ -1110,7 +1131,45 @@ namespace TableauUserSync.ScriptTasks.Common
                 "<user name=\"" + EscapeXml(username) + "\" siteRole=\"" + EscapeXml(siteRole) + "\" />" +
                 "</tsRequest>";
 
-            return SendRequest(url, "POST", token, payload, "application/xml");
+            string responseXml = SendRequest(url, "POST", token, payload, "application/xml");
+            XmlDocument document = new XmlDocument();
+            document.LoadXml(responseXml);
+
+            XmlNamespaceManager ns = new XmlNamespaceManager(document.NameTable);
+            ns.AddNamespace("t", document.DocumentElement.NamespaceURI);
+
+            XmlNode userNode = document.SelectSingleNode("//t:user", ns);
+
+            return new TableauCreateUserResult
+            {
+                UserId = GetRequiredAttribute(userNode, "id"),
+                ResponseXml = responseXml
+            };
+        }
+
+        public string UpdateUserProfile(string serverUrl, string apiVersion, string siteId, string token, string userId, string fullName, string email)
+        {
+            if (string.IsNullOrWhiteSpace(fullName) && string.IsNullOrWhiteSpace(email))
+            {
+                return "Profile update skipped because full name and email were empty.";
+            }
+
+            string url = string.Format(
+                "{0}/api/{1}/sites/{2}/users/{3}",
+                serverUrl.TrimEnd('/'),
+                apiVersion,
+                siteId,
+                userId);
+
+            string payload =
+                "<tsRequest>" +
+                "<user" +
+                (string.IsNullOrWhiteSpace(fullName) ? string.Empty : " fullName=\"" + EscapeXml(fullName) + "\"") +
+                (string.IsNullOrWhiteSpace(email) ? string.Empty : " email=\"" + EscapeXml(email) + "\"") +
+                " />" +
+                "</tsRequest>";
+
+            return SendRequest(url, "PUT", token, payload, "application/xml");
         }
 
         public void SignOut(string serverUrl, string apiVersion, string token)

@@ -23,4 +23,11 @@ namespace TableauUserSync.ScriptTasks.Common
 
         public DateTime? LastLogin { get; set; }
     }
+
+    internal sealed class TableauCreateUserResult
+    {
+        public string UserId { get; set; }
+
+        public string ResponseXml { get; set; }
+    }
 }
