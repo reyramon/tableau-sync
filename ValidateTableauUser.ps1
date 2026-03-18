@@ -19,6 +19,8 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$ServerUrl = $ServerUrl.Trim().TrimEnd('/')
+$Username = $Username.Trim()
 
 function Get-TableauUsersPage {
     param(
@@ -116,7 +118,7 @@ try {
     exit 1
 }
 catch {
-    Write-Error "Validation failed: $($_.Exception.Message)"
+    Write-Error "Validation failed for server [$ServerUrl] and username [$Username]: $($_.Exception.Message)"
     throw
 }
 finally {
