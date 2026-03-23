@@ -406,6 +406,9 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
                     LogApiCall(connection, runId, null, "GET_USERS", BuildUsersUrl(serverUrl, apiVersion, siteId, pageSize), 200, "Retrieved " + tableauUsers.Count + " Tableau users.");
                     Dts.Events.FireInformation(0, "Tableau Sync", "Inserted " + tableauUsers.Count + " Tableau users into staging.", string.Empty, 0, ref fireAgain);
 
+                    LoadFmisUsers(connection, runId);
+                    Dts.Events.FireInformation(0, "Tableau Sync", "Loaded FMIS users into staging.", string.Empty, 0, ref fireAgain);
+
                     BuildDelta(connection, runId);
 
                     IList<SyncCandidate> createCandidates = GetCreateCandidates(connection, runId);
@@ -640,6 +643,16 @@ namespace ST_7527d6142c4b4d4ab5bcd2579d4a97c1
         private static void BuildDelta(SqlConnection connection, long runId)
         {
             using (SqlCommand command = new SqlCommand("dbo.tableau_wrk_usp_BuildTableauUserSyncDelta", connection))
+            {
+                command.CommandType = CommandType.StoredProcedure;
+                command.Parameters.Add("@RunId", SqlDbType.BigInt).Value = runId;
+                command.ExecuteNonQuery();
+            }
+        }
+
+        private static void LoadFmisUsers(SqlConnection connection, long runId)
+        {
+            using (SqlCommand command = new SqlCommand("dbo.tableau_stg_usp_LoadFmisUsers", connection))
             {
                 command.CommandType = CommandType.StoredProcedure;
                 command.Parameters.Add("@RunId", SqlDbType.BigInt).Value = runId;
