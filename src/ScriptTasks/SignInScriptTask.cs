@@ -10,5 +10,17 @@ namespace TableauUserSync.ScriptTasks
             TableauRestClient client = new TableauRestClient();
             return client.SignIn(serverUrl, apiVersion, patName, patSecret, siteContentUrl);
         }
+
+        public TableauSignInResult ExecuteWithCredentialManager(
+            string serverUrl,
+            string apiVersion,
+            string patName,
+            string patSecret,
+            string credentialTargetName,
+            string siteContentUrl)
+        {
+            string resolvedPatSecret = PatSecretResolver.Resolve(patSecret, credentialTargetName);
+            return Execute(serverUrl, apiVersion, patName, resolvedPatSecret, siteContentUrl);
+        }
     }
 }
